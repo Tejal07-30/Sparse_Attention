@@ -2,65 +2,48 @@ import math
 import torch
 
 
-def create_qkv(x, w_q, w_k, w_v):
-    """
-    Create Query, Key and Value matrices.
-
-    Args:
-        x: Input embeddings (batch, seq_len, d_model)
-        w_q, w_k, w_v: Weight matrices
-
-    Returns:
-        Q, K, V
-    """
-
-    q = x @ w_q
-    k = x @ w_k
-    v = x @ w_v
+def create_qkv(x, wq, wk, wv):
+   
+    q = x @ wq
+    k = x @ wk
+    v = x @ wv
 
     return q, k, v
 
 def compute_scores(q, k):
-    """
-    Compute scaled attention scores.
-
-    Returns:
-        (batch, seq_len, seq_len)
-    """
-
-    d_k = q.size(-1)
+   
+    dk = q.size(-1)
 
     scores = q @ k.transpose(-2, -1)
-    scores = scores / math.sqrt(d_k)
+    scores = scores / math.sqrt(dk)
 
     return scores
 
 def apply_mask(scores, mask):
-    """
-    Replace masked positions with -inf.
-    """
-
+   
     return scores.masked_fill(mask, float("-inf"))
 
 def stable_softmax(scores):
-    """
-    Numerically stable softmax.
-    """
 
     max_scores = scores.max(dim=-1, keepdim=True).values
+
+    # if the whole row is -inf, max becomes -inf
+    max_scores[max_scores == float("-inf")] = 0
+
     scores = scores - max_scores
 
     exp_scores = torch.exp(scores)
-    probs = exp_scores / exp_scores.sum(dim=-1, keepdim=True)
 
-    return probs
+    denom = exp_scores.sum(dim=-1, keepdim=True)
 
-def dense_attention(x, w_q, w_k, w_v, mask=None):
-    """
-    Complete dense attention implementation.
-    """
+    # avoid 0/0
+    denom = torch.where(denom == 0, torch.ones_like(denom), denom)
 
-    q, k, v = create_qkv(x, w_q, w_k, w_v)
+    return exp_scores / denom
+
+def dense_attention(x, wq, wk, wv, mask=None):
+   
+    q, k, v = create_qkv(x, wq, wk, wv)
 
     scores = compute_scores(q, k)
 

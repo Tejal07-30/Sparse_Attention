@@ -26,10 +26,11 @@ def bigbird_attention(x, wq, wk, wv, window):
             allowed.append(0)
 
         # added two random tokens
-        torch.manual_seed(i)
+        g = torch.Generator()
+        g.manual_seed(i)
 
         while len(allowed) < (right - left) + 3:
-            r = torch.randint(0, seq_len, (1,)).item()
+            r = torch.randint(0, seq_len, (1,), generator=g).item()
 
             if r not in allowed:
                 allowed.append(r)
