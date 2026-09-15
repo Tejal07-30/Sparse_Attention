@@ -1,78 +1,51 @@
+import math
 import torch
-from attention.dense import dense_attention
 
 
-def bigbird_mask(
-    seq_len,
-    window_size=2,
-    global_tokens=(0,),
-    random_tokens=2,
-    seed=42
-):
-    """
-    BigBird-style attention mask.
-    Returns:
-        True  -> masked
-        False -> allowed
-    """
+def bigbird_attention(x, wq, wk, wv, window):
 
-    torch.manual_seed(seed)
+    q = x @ wq
+    k = x @ wk
+    v = x @ wv
 
-    mask = torch.ones(seq_len, seq_len, dtype=torch.bool)
+    batch, seq_len, d = q.shape
+
+    out = torch.zeros_like(v)
+    probs = torch.zeros(batch, seq_len, seq_len)
 
     for i in range(seq_len):
 
-        # Local window
-        left = max(0, i - window_size)
-        right = min(seq_len, i + window_size + 1)
+        left = max(0, i - window)
+        right = min(seq_len, i + window + 1)
 
-        mask[i, left:right] = False
+        # local tokens
+        allowed = list(range(left, right))
 
-        # Global tokens
-        for g in global_tokens:
-            mask[i, g] = False
-            mask[g, i] = False
+        # made token 0 global
+        if 0 not in allowed:
+            allowed.append(0)
 
-        # Random connections
-        candidates = torch.randperm(seq_len)
+        # added two random tokens
+        torch.manual_seed(i)
 
-        count = 0
-        for token in candidates:
-            token = token.item()
+        while len(allowed) < (right - left) + 3:
+            r = torch.randint(0, seq_len, (1,)).item()
 
-            if mask[i, token]:
-                mask[i, token] = False
-                count += 1
+            if r not in allowed:
+                allowed.append(r)
 
-            if count >= random_tokens:
-                break
+        allowed.sort()
 
-    return mask
+        q_now = q[:, i:i+1, :]
+        k_now = k[:, allowed, :]
+        v_now = v[:, allowed, :]
 
-def bigbird_attention(
-    x,
-    w_q,
-    w_k,
-    w_v,
-    window_size=2,
-    global_tokens=(0,),
-    random_tokens=2,
-):
-    seq_len = x.size(1)
+        scores = (q_now @ k_now.transpose(-2, -1)) / math.sqrt(d)
 
-    mask = bigbird_mask(
-        seq_len,
-        window_size,
-        global_tokens,
-        random_tokens,
-    )
+        attn = torch.softmax(scores, dim=-1)
 
-    output, probs = dense_attention(
-        x,
-        w_q,
-        w_k,
-        w_v,
-        mask=mask,
-    )
+        out[:, i:i+1, :] = attn @ v_now
 
-    return output, probs
+        probs[:, i, allowed] = attn.squeeze(1)
+
+    return out, probs
